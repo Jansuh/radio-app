@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Radio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="merk" id="merk" title="3 sec ingedrukt houden = herladen">
+        <img id="logo" alt="">
+        <span id="appnaam"></span>
+      </div>
+      <button id="waarsch-knop" class="pil waarsch verborgen"></button>
+      <div class="kop-rechts">
+        <button id="volgende-wekker" class="pil zacht verborgen"></button>
+        <button id="slaap-knop" class="pil zacht" title="Slaaptimer">💤</button>
+        <button id="update-knop" class="pil update verborgen"></button>
+        <span id="netwerk" class="stip" title="Internetverbinding"></span>
+        <button id="instel-knop" class="icoonknop" aria-label="Instellingen">⚙️</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="klok">
+        <div class="tijd"><span id="uurmin">--:--</span><span id="sec">--</span></div>
+        <div id="datum" class="datum"></div>
+        <div id="zon" class="zon"></div>
+      </section>
+
+      <section class="weer">
+        <div class="nu">
+          <div id="weer-icoon" class="icoon">⏳</div>
+          <div>
+            <div id="weer-temp" class="temp">--°</div>
+            <div id="weer-oms" class="oms">Weer laden…</div>
+          </div>
+        </div>
+        <div id="weer-details" class="details"></div>
+        <div class="regen">
+          <div id="regen-tekst" class="regen-tekst"></div>
+          <div id="regen-balken" class="regen-balken"></div>
+          <div class="regen-as"><span>Nu</span><span>+1 uur</span><span>+2 uur</span></div>
+        </div>
+        <div id="verwachting" class="verwachting"></div>
+        <div id="weer-update" class="klein"></div>
+      </section>
+    </main>
+
+    <footer class="radio">
+      <div id="zenders" class="zenders"></div>
+      <div class="bediening">
+        <button id="play" class="rond" aria-label="Afspelen of stoppen">▶&#xFE0E;</button>
+        <div class="nuspeelt">
+          <div id="zender-naam">Geen zender</div>
+          <div id="zender-status" class="klein">Kies een zender</div>
+        </div>
+        <span class="vol-icoon">🔈</span>
+        <input id="volume" type="range" min="0" max="100" step="1" aria-label="Volume">
+        <span class="vol-icoon">🔊</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Nachtdimmer (als er geen regelbare achtergrondverlichting is) -->
+  <div id="nacht"></div>
+
+  <!-- Wekker gaat af -->
+  <div id="wekker-scherm" class="laag verborgen">
+    <div class="wekker-inhoud">
+      <div class="wekker-icoon">⏰</div>
+      <div id="wekker-tijd" class="wekker-tijd">07:00</div>
+      <div id="wekker-info" class="wekker-info"></div>
+      <div class="wekker-knoppen">
+        <button id="sluimer" class="groot zacht">Sluimeren</button>
+        <button id="wekker-uit" class="groot accent">Uit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instellingen -->
+  <div id="instellingen" class="laag verborgen">
+    <div class="paneel-instel">
+      <nav id="tabs" class="tabs">
+        <button data-tab="wekker" class="actief">⏰ Wekker</button>
+        <button data-tab="zenders">📻 Zenders</button>
+        <button data-tab="scherm">🔆 Scherm</button>
+        <button data-tab="wifi">📶 Wi-Fi</button>
+        <button data-tab="systeem">🖥️ Systeem</button>
+        <button id="instel-sluit" class="sluit">✕ Sluiten</button>
+      </nav>
+      <div id="tab-inhoud" class="tab-inhoud"></div>
+    </div>
+  </div>
+
+  <!-- Dialoog (bevestigen / melding) -->
+  <div id="dialoog" class="laag verborgen">
+    <div class="dialoog">
+      <div id="dialoog-tekst"></div>
+      <div id="dialoog-knoppen" class="dialoog-knoppen"></div>
+    </div>
+  </div>
+
+  <!-- Schermtoetsenbord -->
+  <div id="toetsenbord" class="laag verborgen">
+    <div class="tb">
+      <div class="tb-kop">
+        <div id="tb-label" class="tb-label"></div>
+        <div class="tb-veld"><span id="tb-waarde"></span><span class="tb-cursor">|</span></div>
+        <button id="tb-oog" class="tb-oog verborgen">👁</button>
+      </div>
+      <div id="tb-toetsen" class="tb-toetsen"></div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

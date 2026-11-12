@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Voorbeeldlogo: vervang dit bestand door je eigen logo -->
+  <rect x="8" y="8" width="184" height="184" rx="44" fill="#f5a623"/>
+  <circle cx="100" cy="122" r="17" fill="#0d1117"/>
+  <path d="M74.5 96.5 A36 36 0 0 1 125.5 96.5" stroke="#0d1117" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M54.7 76.7 A64 64 0 0 1 145.3 76.7" stroke="#0d1117" stroke-width="14" fill="none" stroke-linecap="round"/>
+</svg>

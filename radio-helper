@@ -1,0 +1,58 @@
+#!/bin/bash
+# Hulpopdracht voor de radio-app. Draait als root via sudo, maar kan alleen deze vaste taken uitvoeren.
+# Wordt door install.sh geïnstalleerd als /usr/local/sbin/radio-helper (eigendom root).
+set -u
+
+case "${1:-}" in
+  poweroff)
+    systemctl poweroff ;;
+
+  reboot)
+    systemctl reboot ;;
+
+  update-check)
+    apt-get update -qq >/dev/null 2>&1
+    apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst ' || true ;;
+
+  upgrade)
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update &&
+    apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade &&
+    apt-get -y autoremove ;;
+
+  wifi-scan)
+    nmcli -t -e yes -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan yes ;;
+
+  wifi-connect)
+    SSID="${2:-}"
+    WW="${3:-}"
+    [ "$#" -le 3 ] || { echo "Te veel argumenten"; exit 2; }
+    [ -n "$SSID" ] || { echo "Geen netwerknaam"; exit 2; }
+    # Een netwerknaam is hooguit 32 bytes, een wachtwoord hooguit 64 tekens; geen stuurtekens
+    [ "$(printf %s "$SSID" | wc -c)" -le 32 ] || { echo "Netwerknaam te lang"; exit 2; }
+    [ "${#WW}" -le 64 ] || { echo "Wachtwoord te lang"; exit 2; }
+    case "$SSID$WW" in *[[:cntrl:]]*) echo "Ongeldige tekens"; exit 2 ;; esac
+    # Oud profiel met dezelfde naam weghalen (bijv. verkeerd wachtwoord)
+    nmcli connection delete id "$SSID" >/dev/null 2>&1 || true
+    if [ -n "$WW" ]; then
+      nmcli device wifi connect "$SSID" password "$WW"
+    else
+      nmcli device wifi connect "$SSID"
+    fi ;;
+
+  backlight)
+    WAARDE="${2:-100}"
+    [[ "$WAARDE" =~ ^[0-9]{1,3}$ ]] || exit 2
+    WAARDE=$((10#$WAARDE))                 # '08' niet als octaal lezen
+    [ "$WAARDE" -le 100 ] || exit 2
+    for b in /sys/class/backlight/*; do
+      [ -f "$b/max_brightness" ] || continue
+      MAX=$(cat "$b/max_brightness")
+      echo $(( WAARDE * MAX / 100 )) > "$b/brightness"
+      # Helderheid 0 = scherm uit, anders aan
+      [ -f "$b/bl_power" ] && { [ "$WAARDE" -eq 0 ] && echo 4 > "$b/bl_power" || echo 0 > "$b/bl_power"; }
+    done ;;
+
+  *)
+    echo "Onbekende taak"; exit 2 ;;
+esac
