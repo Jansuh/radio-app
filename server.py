@@ -4,6 +4,7 @@ Lokale server voor de radio-app.
 - Serveert de app op http://localhost:8080
 - Regelt systeemtaken via de beveiligde hulpopdracht /usr/local/sbin/radio-helper:
   uitzetten, herstarten, wifi, updates en schermhelderheid
+- Kiest de audio-uitgang en het hoofdvolume (via pactl, zonder root)
 - Haalt KNMI-weerwaarschuwingen op via MeteoAlarm
 
 Luistert alleen op 127.0.0.1, dus alleen het scherm van de Pi zelf kan hem gebruiken.
@@ -472,6 +473,101 @@ def nu_speelt(url):
     return titel
 
 
+# ------------------------------------------------------------------ geluid (audio-uitgang en hoofdvolume)
+# Werkt via pactl (PipeWire of PulseAudio), als de gewone gebruiker: geen root nodig.
+demo_geluid = {'actief': 'hdmi', 'volume': 40}
+
+
+def pactl(*args, timeout=8):
+    env = {**os.environ, 'LC_ALL': 'C'}
+    env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')      # de dienst heeft die zelf niet
+    r = subprocess.run(['pactl', *args], capture_output=True, text=True, timeout=timeout, env=env)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr.strip().splitlines() or ['pactl mislukt'])[-1])
+    return r.stdout
+
+
+def uitgang_label(naam, oms):
+    """Begrijpelijke naam voor een audio-uitgang."""
+    t = f'{naam} {oms}'.lower()
+    if 'bluez' in t or 'bluetooth' in t:
+        return 'Bluetooth'
+    if 'hdmi' in t:
+        return 'HDMI (scherm of tv)'
+    if 'usb' in t:
+        return 'USB-geluid'
+    if 'bcm2835' in t or 'headphone' in t:
+        return 'Koptelefoonaansluiting (3,5 mm)'
+    return oms or naam
+
+
+def parse_uitgangen(tekst, standaard):
+    """Lees de uitvoer van 'pactl list sinks'."""
+    uit = []
+    for blok in re.split(r'^Sink #', tekst, flags=re.M)[1:]:
+        naam = re.search(r'^\s*Name: (.+)$', blok, re.M)
+        if not naam:
+            continue
+        naam = naam.group(1).strip()
+        oms = re.search(r'^\s*Description: (.+)$', blok, re.M)
+        oms = oms.group(1).strip() if oms else ''
+        vol = re.search(r'^\s*Volume:.*?(\d+)%', blok, re.M)
+        demp = re.search(r'^\s*Mute: (\w+)', blok, re.M)
+        uit.append({'naam': naam, 'label': uitgang_label(naam, oms), 'omschrijving': oms,
+                    'actief': naam == standaard, 'volume': int(vol.group(1)) if vol else None,
+                    'gedempt': bool(demp and demp.group(1) == 'yes')})
+    return uit
+
+
+def geluid_status():
+    if DEMO:
+        namen = [('jack', 'alsa_output.platform-bcm2835_audio.stereo-fallback', 'Built-in Audio Stereo'),
+                 ('hdmi', 'alsa_output.platform-fef00700.hdmi.hdmi-stereo', 'Built-in Audio Digital Stereo (HDMI)'),
+                 ('usb', 'alsa_output.usb-Generic_USB_Audio-00.analog-stereo', 'USB Audio Analog Stereo')]
+        return {'beschikbaar': True, 'volume': demo_geluid['volume'], 'gedempt': False,
+                'uitgangen': [{'naam': n, 'label': uitgang_label(n, o), 'omschrijving': o,
+                               'actief': k == demo_geluid['actief']} for k, n, o in namen]}
+    try:
+        m = re.search(r'^Default Sink: (.+)$', pactl('info'), re.M)
+        standaard = m.group(1).strip() if m else ''
+        uitgangen = parse_uitgangen(pactl('list', 'sinks'), standaard)
+    except FileNotFoundError:
+        return {'beschikbaar': False, 'fout': 'pactl ontbreekt. Draai één keer: bash ~/radio-app/install.sh'}
+    except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+        return {'beschikbaar': False, 'fout': f'Geluidssysteem niet bereikbaar: {e}'[:160]}
+    actief = next((u for u in uitgangen if u['actief']), None)
+    return {'beschikbaar': True, 'uitgangen': uitgangen,
+            'volume': actief['volume'] if actief else None, 'gedempt': bool(actief and actief['gedempt'])}
+
+
+def zet_geluid(data):
+    if DEMO:
+        if 'uitgang' in data:
+            demo_geluid['actief'] = {'alsa_output.platform-bcm2835_audio.stereo-fallback': 'jack',
+                                     'alsa_output.usb-Generic_USB_Audio-00.analog-stereo': 'usb'}.get(str(data['uitgang']), 'hdmi')
+        if 'volume' in data:
+            demo_geluid['volume'] = max(0, min(100, int(data['volume'])))
+        return geluid_status()
+    if 'uitgang' in data:
+        naam = str(data['uitgang'])
+        # Alleen een uitgang die het systeem zelf opgeeft
+        if naam not in {u['naam'] for u in geluid_status().get('uitgangen', [])}:
+            raise ValueError('Onbekende audio-uitgang')
+        pactl('set-default-sink', naam)
+        for regel in pactl('list', 'short', 'sink-inputs').splitlines():     # wat al speelt mee verhuizen
+            nr = regel.split('\t')[0]
+            if nr.isdigit():
+                try:
+                    pactl('move-sink-input', nr, naam)
+                except (RuntimeError, subprocess.SubprocessError):
+                    pass
+    if 'volume' in data:
+        v = max(0, min(100, int(data['volume'])))
+        pactl('set-sink-volume', '@DEFAULT_SINK@', f'{v}%')
+        pactl('set-sink-mute', '@DEFAULT_SINK@', '0')
+    return geluid_status()
+
+
 # ------------------------------------------------------------------ demo
 def demo_helper(*args):
     if args[0] == 'update-check':
@@ -526,6 +622,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json(systeem_info())
             if pad == '/api/instellingen':
                 return self.json(json.loads(lees(INSTELLINGEN, '{}') or '{}'))
+            if pad == '/api/geluid':
+                return self.json(geluid_status())
             if pad == '/api/wifi/scan':
                 return self.json({'netwerken': wifi_scan()})
             if pad == '/api/nuspeelt':
@@ -592,6 +690,8 @@ class Handler(SimpleHTTPRequestHandler):
             if pad == '/api/updates/installeren':
                 installeer_updates()
                 return self.json({'ok': True})
+            if pad == '/api/geluid':
+                return self.json(zet_geluid(data))
             if pad == '/api/helderheid':
                 waarde = max(0, min(100, int(data.get('waarde', 100))))
                 code, _, _ = helper('backlight', str(waarde), timeout=10)

@@ -20,6 +20,8 @@ GEBRUIKER="$(id -un)"
 echo "==> Pakketten installeren"
 sudo apt-get update
 sudo apt-get install -y fonts-noto-color-emoji librsvg2-bin python3 git
+# pactl: daarmee kiest de app de audio-uitgang en het hoofdvolume
+command -v pactl >/dev/null || sudo apt-get install -y pulseaudio-utils || echo "    Let op: pactl ontbreekt, geluid instellen op het scherm werkt dan niet."
 if ! command -v chromium >/dev/null && ! command -v chromium-browser >/dev/null; then
   sudo apt-get install -y chromium
 fi

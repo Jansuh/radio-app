@@ -61,6 +61,7 @@
     nachtmodus: kopie(C.nachtmodus || { aan: false, van: 23, tot: 7, helderheid: 20 }),
     helderheid: C.helderheid ?? 100,
     weeralarm: kopie(C.weeralarm || { aan: true, regio: 'Noord-Brabant' }),
+    locatie: kopie(C.locatie),
     appAutoUpdate: true
   };
 
@@ -188,7 +189,7 @@
   const beaufort = kmh => [1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118].filter(t => kmh >= t).length;
 
   function haalWeer() {
-    const { lat, lon } = C.locatie;
+    const { lat, lon } = inst.locatie;
     return haalJson('https://api.open-meteo.com/v1/forecast' +
       `?latitude=${lat}&longitude=${lon}` +
       '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,is_day' +
@@ -237,25 +238,26 @@
     const uurMin = s => s.slice(11, 16);
     $('zon').textContent = `🌅 ${uurMin(dg.sunrise[0])}    🌇 ${uurMin(dg.sunset[0])}`;
     $('weer-update').textContent = verouderd
-      ? `${C.locatie.naam} · laatst bekende weer, geen verbinding`
-      : `${C.locatie.naam} · bijgewerkt ${fmtTijd.format(new Date())} · Open-Meteo`;
+      ? `${inst.locatie.naam} · laatst bekende weer, geen verbinding`
+      : `${inst.locatie.naam} · bijgewerkt ${fmtTijd.format(new Date())} · Open-Meteo`;
   }
 
-  let weerGetoond = false;
+  let weerGetoond = false, weerTimer = null;
   async function ververWeer() {
+    clearTimeout(weerTimer);
     try {
       const d = DEMO ? demoWeer() : await haalWeer();
       toonWeer(d);
       weerGetoond = true;
       opslag.set('weer', d);
       zetOnline(true);
-      setTimeout(ververWeer, C.weerVerversMinuten * 60000);
+      weerTimer = setTimeout(ververWeer, C.weerVerversMinuten * 60000);
     } catch (e) {
       zetOnline(false);
       const oud = opslag.get('weer', null);
       if (oud && !weerGetoond) { try { toonWeer(oud, true); } catch (x) { /* negeren */ } }
       $('weer-update').textContent = 'Geen verbinding, nieuwe poging over 1 minuut';
-      setTimeout(ververWeer, 60000);
+      weerTimer = setTimeout(ververWeer, 60000);
     }
   }
 
@@ -667,6 +669,21 @@
   }
   function stopPiep() { clearInterval(piepTimer); piepTimer = null; }
 
+  // Korte testtoon (tab Geluid), los van de radio
+  function testToon() {
+    try {
+      piepCtx = piepCtx || new (window.AudioContext || window.webkitAudioContext)();
+      piepCtx.resume();
+      const t = piepCtx.currentTime;
+      [660, 880, 1100].forEach((f, k) => {
+        const o = piepCtx.createOscillator(), g = piepCtx.createGain();
+        o.frequency.value = f; g.gain.value = 0.4;
+        o.connect(g).connect(piepCtx.destination);
+        o.start(t + k * 0.3); o.stop(t + k * 0.3 + 0.22);
+      });
+    } catch (e) { /* geen geluid mogelijk */ }
+  }
+
   function volgendeWekker(nu) {
     let beste = null;
     inst.wekkers.forEach(w => {
@@ -834,7 +851,7 @@
   let huidigeTab = 'wekker';
 
   function openInstellingen(tab = 'wekker') {
-    instOpen = true;
+    instOpen = true; geluid = null;
     $('instellingen').classList.remove('verborgen');
     tekenTab(tab);
     ververStatus();
@@ -853,7 +870,7 @@
   $('instel-sluit').addEventListener('click', sluitInstellingen);
   $('tabs').addEventListener('click', e => {
     const b = e.target.closest('button[data-tab]');
-    if (b) tekenTab(b.dataset.tab);
+    if (b) { geluid = null; tekenTab(b.dataset.tab); }
   });
 
   function tekenTab(tab) {
@@ -862,7 +879,7 @@
     const vak = $('tab-inhoud');
     const scroll = vak.scrollTop;
     vak.innerHTML = '';
-    vak.appendChild({ wekker: tabWekker, zenders: tabZenders, scherm: tabScherm, wifi: tabWifi, systeem: tabSysteem }[tab]());
+    vak.appendChild({ wekker: tabWekker, zenders: tabZenders, scherm: tabScherm, geluid: tabGeluid, wifi: tabWifi, systeem: tabSysteem }[tab]());
     vak.scrollTop = scroll;
   }
 
@@ -1015,8 +1032,10 @@
     const n = inst.nachtmodus;
     const echt = systeem && systeem.backlight;
     const toonNacht = () => { wakkerTot = 0; setTimeout(() => { wakkerTot = Date.now() + 30000; }, 3000); };
+    const plaatsen = h('div', {});
+    const standaardLoc = inst.locatie.lat === C.locatie.lat && inst.locatie.lon === C.locatie.lon;
     return h('div', {},
-      h('h2', {}, 'Scherm'),
+      h('h2', {}, 'Scherm en weer'),
       h('div', { class: 'kaart' },
         h('div', { class: 'rij' }, h('span', { class: 'label groei' }, 'Helderheid overdag'), h('span', { class: 'sub' }, inst.helderheid + '%')),
         h('div', { class: 'rij' }, h('input', { type: 'range', min: 10, max: 100, value: inst.helderheid, class: 'breed',
@@ -1039,8 +1058,66 @@
           h('button', { class: 'knop klein-k zacht', onclick: () => wisselProvincie(-1) }, '◀'),
           h('span', { class: 'label groei', style: 'text-align:center', id: 'provincie' }, inst.weeralarm.regio),
           h('button', { class: 'knop klein-k zacht', onclick: () => wisselProvincie(1) }, '▶')),
-        h('div', { class: 'sub' }, 'Bij code geel, oranje of rood verschijnt er bovenaan een melding.'))
+        h('div', { class: 'sub' }, 'Bij code geel, oranje of rood verschijnt er bovenaan een melding.')),
+      h('div', { class: 'kaart' },
+        h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, 'Weerlocatie')),
+          h('span', { class: 'label', id: 'locatie-naam' }, inst.locatie.naam)),
+        h('div', { class: 'rij' },
+          h('button', { class: 'knop', onclick: () => zoekLocatie(plaatsen) }, '📍 Andere plaats'),
+          standaardLoc ? null : h('button', { class: 'knop zacht', onclick: () => kiesLocatie(kopie(C.locatie)) }, `Terug naar ${C.locatie.naam}`)),
+        h('div', { class: 'sub' }, 'Het weer, de regenverwachting en de zonstijden gelden voor deze plaats.')),
+      plaatsen
     );
+  }
+
+  async function zoekPlaatsen(q) {
+    if (DEMO) {
+      return [{ name: 'Eindhoven', admin1: 'Noord-Brabant', country: 'Nederland', country_code: 'NL', latitude: 51.44083, longitude: 5.47778 },
+        { name: 'Leeuwarden', admin1: 'Fryslân', country: 'Nederland', country_code: 'NL', latitude: 53.20139, longitude: 5.80859 },
+        { name: 'Antwerpen', admin1: 'Vlaanderen', country: 'België', country_code: 'BE', latitude: 51.22047, longitude: 4.40026 }];
+    }
+    const d = await haalJson('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(q) +
+      '&count=8&language=nl&format=json', 10000);
+    return d.results || [];
+  }
+
+  async function zoekLocatie(vak) {
+    const q = await toetsenbord({ label: 'Plaatsnaam', ok: 'Zoeken' });
+    if (!q || !q.trim()) return;
+    vak.innerHTML = '';
+    vak.appendChild(h('div', { class: 'melding' }, `Zoeken naar “${q.trim()}”…`));
+    let lijst;
+    try { lijst = await zoekPlaatsen(q.trim()); } catch (e) {
+      vak.innerHTML = ''; vak.appendChild(h('div', { class: 'melding fout' }, 'Zoeken lukt niet, controleer de internetverbinding.'));
+      return;
+    }
+    vak.innerHTML = '';
+    vak.appendChild(h('h3', {}, lijst.length ? 'Kies een plaats' : 'Niets gevonden'));
+    if (!lijst.length) return;
+    const kaart = h('div', { class: 'kaart' });
+    lijst.forEach(p => kaart.appendChild(h('div', { class: 'lijst-rij', onclick: () => kiesLocatie({
+      naam: p.name, lat: Math.round(p.latitude * 1e4) / 1e4, lon: Math.round(p.longitude * 1e4) / 1e4
+    }, p) },
+      h('span', { class: 'naam' }, p.name),
+      h('span', { class: 'sub' }, [p.admin1, p.country].filter(Boolean).join(', ')))));
+    vak.appendChild(kaart);
+    kaart.scrollIntoView({ block: 'nearest' });
+  }
+
+  function kiesLocatie(loc, plaats) {
+    inst.locatie = loc;
+    // Ligt de plaats in Nederland, dan gaat het weeralarm mee naar die provincie
+    if (plaats && plaats.country_code === 'NL') {
+      const prov = plaats.admin1 === 'Fryslân' ? 'Friesland' : plaats.admin1;
+      if (PROVINCIES.includes(prov) && prov !== inst.weeralarm.regio) { inst.weeralarm.regio = prov; ververWaarschuwingen(); }
+    } else if (!plaats && C.weeralarm && inst.weeralarm.regio !== C.weeralarm.regio) {
+      inst.weeralarm.regio = C.weeralarm.regio; ververWaarschuwingen();
+    }
+    bewaar();
+    opslag.set('weer', null); weerGetoond = false;
+    $('weer-update').textContent = `${loc.naam} · weer laden…`;
+    ververWeer();
+    tekenTab('scherm');
   }
 
   function wisselProvincie(d) {
@@ -1051,6 +1128,56 @@
     bewaar();
     clearTimeout(wisselProvincie.t);
     wisselProvincie.t = setTimeout(ververWaarschuwingen, 1500);
+  }
+
+  // ---------- Geluid ----------
+  let geluid = null, geluidTimer = null;
+
+  async function laadGeluid() {
+    try { geluid = await api('/api/geluid', undefined, 12000); }
+    catch (e) { geluid = { beschikbaar: false, fout: e.message }; }
+    if (instOpen && huidigeTab === 'geluid') tekenTab('geluid');
+  }
+
+  async function zetGeluid(data, opnieuwTekenen = true) {
+    try { geluid = await api('/api/geluid', data, 12000); }
+    catch (e) { geluid = { ...(geluid || {}), fout: e.message }; opnieuwTekenen = true; }
+    if (opnieuwTekenen && instOpen && huidigeTab === 'geluid') tekenTab('geluid');
+  }
+
+  function tabGeluid() {
+    const c = h('div', {}, h('h2', {}, 'Geluid'));
+    if (!SERVER) { c.appendChild(h('div', { class: 'kaart sub' }, 'Geluid instellen kan alleen op de Pi zelf.')); return c; }
+    if (!geluid) { laadGeluid(); c.appendChild(h('div', { class: 'kaart sub' }, 'Laden…')); return c; }
+    if (!geluid.beschikbaar) {
+      c.appendChild(h('div', { class: 'kaart' }, h('div', { class: 'melding fout' }, geluid.fout || 'Geluid instellen lukt niet.'),
+        h('div', { class: 'rij' }, h('button', { class: 'knop zacht', onclick: () => { geluid = null; tekenTab('geluid'); } }, 'Opnieuw proberen'))));
+      return c;
+    }
+    const lijst = h('div', { class: 'kaart' },
+      h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, 'Waar komt het geluid uit?'))));
+    geluid.uitgangen.forEach(u => lijst.appendChild(h('div', { class: 'lijst-rij', onclick: () => { if (!u.actief) zetGeluid({ uitgang: u.naam }); } },
+      h('span', { class: 'naam' }, (u.actief ? '✓ ' : '') + u.label),
+      h('span', { class: 'sub' }, u.omschrijving && u.omschrijving !== u.label ? u.omschrijving : ''))));
+    if (!geluid.uitgangen.length) lijst.appendChild(h('div', { class: 'sub' }, 'Geen audio-uitgang gevonden.'));
+    if (geluid.fout) lijst.appendChild(h('div', { class: 'melding fout' }, geluid.fout));
+    c.appendChild(lijst);
+
+    const pct = h('span', { class: 'sub' }, geluid.volume == null ? '—' : geluid.volume + '%');
+    c.appendChild(h('div', { class: 'kaart' },
+      h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, 'Hoofdvolume van de Pi')), pct),
+      h('div', { class: 'rij' }, h('input', { type: 'range', min: 0, max: 100, value: geluid.volume ?? 50, class: 'breed',
+        oninput: e => {
+          const v = Number(e.target.value);
+          pct.textContent = v + '%';
+          clearTimeout(geluidTimer);
+          geluidTimer = setTimeout(() => zetGeluid({ volume: v }, false), 250);
+        } })),
+      h('div', { class: 'rij' },
+        h('button', { class: 'knop', onclick: testToon }, '🔔 Testtoon'),
+        h('button', { class: 'knop zacht', onclick: () => { geluid = null; tekenTab('geluid'); } }, 'Uitgangen opnieuw zoeken')),
+      h('div', { class: 'sub', style: 'margin-top:1vh' }, 'Dit is het maximale volume. De schuif bij de radio en het volume van de wekker regelen daarbinnen.')));
+    return c;
   }
 
   // ---------- Wi-Fi ----------

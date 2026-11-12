@@ -8,6 +8,8 @@ Een schermvullende wekkerradio die vanzelf opstart, met:
 - een **KNMI-weeralarm** voor Noord-Brabant: bij code geel, oranje of rood verschijnt er bovenaan een gekleurde balk
 - **instellingen op het scherm** (⚙️): wekkers, zenders zoeken en toevoegen, helderheid, nachtmodus, Wi-Fi en systeem
 - **Wi-Fi kiezen** met een schermtoetsenbord
+- **geluid** (⚙️ › Geluid): kies waar het geluid uit komt (koptelefoonaansluiting, HDMI of USB) en stel het hoofdvolume in
+- **weerlocatie** kiezen (⚙️ › Scherm › *Andere plaats*): typ een plaatsnaam, de provincie voor het weeralarm gaat mee
 - een **update-melding** (⬆ bovenaan) die je met één tik installeert
 - knoppen om de Pi te **herstarten en uit te zetten**
 - **de app werkt zichzelf bij via GitHub**: met één tik, of 's nachts automatisch
@@ -15,7 +17,7 @@ Een schermvullende wekkerradio die vanzelf opstart, met:
 ## Wat je nodig hebt
 - Een Raspberry Pi 4 of 5 met **Raspberry Pi OS (64-bit, met bureaublad, Bookworm of nieuwer)**
 - Een scherm (het officiële touchscreen of HDMI)
-- Geluid: een Pi 5 heeft geen koptelefoonaansluiting, gebruik dus een DAC-HAT, USB-speaker of HDMI-audio
+- Geluid: een Pi 4 heeft een koptelefoonaansluiting (3,5 mm). Een Pi 5 heeft die niet, gebruik daar een DAC-HAT, USB-speaker of HDMI-audio
 
 ## Installeren
 
@@ -67,6 +69,7 @@ Vanaf de zip werkt alles, behalve het zelf bijwerken van de app. Wil je dat late
 - **Standaardinstellingen:** die staan in `config.js` (zenders, locatie, wekkers, provincie voor het weeralarm).
 
 ## Handig om te weten
+- **Geen geluid?** Ga naar ⚙️ › Geluid, kies de juiste uitgang (bij een Pi 4 met boxjes: *Koptelefoonaansluiting*) en druk op *Testtoon*. Zet daar ook het hoofdvolume hoog genoeg; de schuif bij de radio regelt daarbinnen.
 - Houd je **logo 3 seconden ingedrukt** om de app te herladen.
 - 's Nachts maakt de eerste tik het scherm alleen wakker. Er wordt dan niet per ongeluk een knop ingedrukt.
 - Helderheid op 0 's nachts zet de verlichting helemaal uit (bij het officiële touchscreen).
