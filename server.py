@@ -5,7 +5,7 @@ Lokale server voor de radio-app.
 - Regelt systeemtaken via de beveiligde hulpopdracht /usr/local/sbin/radio-helper:
   uitzetten, herstarten, wifi, updates en schermhelderheid
 - Kiest de audio-uitgang en het hoofdvolume (via pactl, zonder root)
-- Haalt KNMI-weerwaarschuwingen op via MeteoAlarm
+- Haalt KNMI-weerwaarschuwingen op via MeteoAlarm en de schoolvakanties bij de Rijksoverheid
 
 Luistert alleen op 127.0.0.1, dus alleen het scherm van de Pi zelf kan hem gebruiken.
 Alleen Python-standaardbibliotheek, geen extra pakketten nodig.
@@ -33,10 +33,15 @@ APP_STATUS = os.path.join(CONF_DIR, 'app-update.json')
 HELPER = '/usr/local/sbin/radio-helper'
 PORT = int(os.environ.get('RADIO_PORT', '8080'))
 DEMO = os.environ.get('RADIO_DEMO') == '1'
+GELUIDEN = os.path.join(CONF_DIR, 'geluiden')            # eigen wekgeluiden (mp3, ogg, wav …)
+GELUID_EXT = {'.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav',
+              '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac'}
+SV_URL = 'https://opendata.rijksoverheid.nl/v1/infotypes/schoolholidays/schoolyear/{}?output=json'
+SV_CACHE = os.path.join(CONF_DIR, 'schoolvakanties.json')
 METEOALARM = 'https://feeds.meteoalarm.org/api/v1/warnings/feeds-netherlands'
 TOEGESTANE_HOSTS = {f'localhost:{PORT}', f'127.0.0.1:{PORT}'}
 
-os.makedirs(CONF_DIR, exist_ok=True)
+os.makedirs(GELUIDEN, exist_ok=True)
 slot = threading.Lock()
 
 status = {
@@ -398,6 +403,83 @@ def waarschuwingen(regio):
     return resultaat
 
 
+# ------------------------------------------------------------------ schoolvakanties (Rijksoverheid)
+sv_cache = {'tijd': 0, 'data': None}
+
+
+def parse_schoolvakanties(data):
+    """Zet het antwoord van opendata.rijksoverheid.nl om naar een eenvoudige lijst."""
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    uit = []
+    for c in data.get('content', []) or []:
+        for v in c.get('vacations', []) or []:
+            for r in v.get('regions', []) or []:
+                van, tot = str(r.get('startdate', ''))[:10], str(r.get('enddate', ''))[:10]
+                if re.fullmatch(r'\d{4}-\d\d-\d\d', van) and re.fullmatch(r'\d{4}-\d\d-\d\d', tot):
+                    uit.append({'naam': str(v.get('type', '')).strip(), 'regio': str(r.get('region', '')).strip().lower(),
+                                'van': van, 'tot': tot, 'schooljaar': str(c.get('schoolyear', '')).strip()})
+    return uit
+
+
+def schoolvakanties():
+    """Vakanties per regio. Wekelijks ververst; zonder internet de laatst bewaarde of de meegeleverde lijst."""
+    nu = time.time()
+    if sv_cache['data'] is not None and nu - sv_cache['tijd'] < 6 * 3600:
+        return sv_cache['data']
+    vandaag = datetime.now()
+    lijst, bron = [], 'meegeleverd'
+    try:
+        with open(os.path.join(APP_DIR, 'schoolvakanties.json'), encoding='utf-8') as f:
+            lijst = [{**v, 'regio': str(v.get('regio', '')).lower()} for v in json.load(f).get('vakanties', [])]
+    except (OSError, ValueError):
+        pass
+    bewaard = None
+    try:
+        with open(SV_CACHE, encoding='utf-8') as f:
+            bewaard = json.load(f)
+    except (OSError, ValueError):
+        pass
+    vers = None
+    if not DEMO and not (bewaard and nu - bewaard.get('tijd', 0) < 7 * 86400):
+        start = vandaag.year if vandaag.month >= 8 else vandaag.year - 1
+        vers = []
+        for j in (start, start + 1):
+            try:
+                req = urllib.request.Request(SV_URL.format(f'{j}-{j + 1}'), headers={'User-Agent': 'radio-app/1.0'})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    vers += parse_schoolvakanties(json.load(r))
+            except (OSError, ValueError):
+                pass                                        # volgend schooljaar staat er soms nog niet
+        if vers:
+            bewaard = {'tijd': nu, 'vakanties': vers}
+            try:
+                with open(SV_CACHE + '.tmp', 'w', encoding='utf-8') as f:
+                    json.dump(bewaard, f)
+                os.replace(SV_CACHE + '.tmp', SV_CACHE)
+            except OSError:
+                pass
+    if bewaard and bewaard.get('vakanties'):
+        # Opgehaalde gegevens gaan voor op de meegeleverde lijst
+        sleutel = lambda v: (v.get('naam'), v.get('regio'), v.get('schooljaar'))
+        samen = {sleutel(v): v for v in lijst}
+        samen.update({sleutel(v): v for v in bewaard['vakanties']})
+        lijst, bron = list(samen.values()), 'Rijksoverheid'
+    grens = vandaag.strftime('%Y-%m-%d')
+    lijst = sorted((v for v in lijst if v.get('tot', '') >= grens), key=lambda v: v.get('van', ''))
+    sv_cache.update({'tijd': nu, 'data': {'vakanties': lijst, 'bron': bron}})
+    return sv_cache['data']
+
+
+def wekgeluiden():
+    try:
+        return sorted(n for n in os.listdir(GELUIDEN)
+                      if not n.startswith('.') and os.path.splitext(n)[1].lower() in GELUID_EXT
+                      and os.path.isfile(os.path.join(GELUIDEN, n)))
+    except OSError:
+        return []
+
+
 # ------------------------------------------------------------------ nu speelt
 nuspeelt_cache = {}
 DEMO_TITELS = ['Doe Maar - De bom', 'Golden Earring - Radar Love', 'Suzan & Freek - Blijf bij mij', 'Racoon - Oceaan']
@@ -624,6 +706,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json(json.loads(lees(INSTELLINGEN, '{}') or '{}'))
             if pad == '/api/geluid':
                 return self.json(geluid_status())
+            if pad == '/api/schoolvakanties':
+                return self.json(schoolvakanties())
+            if pad == '/api/wekgeluiden':
+                return self.json({'bestanden': wekgeluiden(), 'map': '~/.config/radio-app/geluiden'})
             if pad == '/api/wifi/scan':
                 return self.json({'netwerken': wifi_scan()})
             if pad == '/api/nuspeelt':
@@ -637,9 +723,23 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json({'fout': str(e)[:200]}, 500)
         if pad.startswith('/api/'):
             return self.json({'fout': 'onbekend'}, 404)
+        if pad.startswith('/geluiden/'):
+            return self.stuur_wekgeluid(urllib.parse.unquote(pad[len('/geluiden/'):]))
         if not self.statisch_ok():
             return self.send_error(404)
         return super().do_GET()
+
+    def stuur_wekgeluid(self, naam):
+        """Een eigen wekgeluid uit ~/.config/radio-app/geluiden (alleen bestanden uit die map zelf)."""
+        if naam not in wekgeluiden():
+            return self.send_error(404)
+        with open(os.path.join(GELUIDEN, naam), 'rb') as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', GELUID_EXT[os.path.splitext(naam)[1].lower()])
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_HEAD(self):
         if not self.host_ok():

@@ -1,0 +1,236 @@
+{
+ "bron": "Rijksoverheid (opendata.rijksoverheid.nl)",
+ "vakanties": [
+  {
+   "naam": "Herfstvakantie",
+   "regio": "noord",
+   "van": "2026-10-10",
+   "tot": "2026-10-18",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "midden",
+   "van": "2026-10-17",
+   "tot": "2026-10-25",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "zuid",
+   "van": "2026-10-17",
+   "tot": "2026-10-25",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Kerstvakantie",
+   "regio": "heel nederland",
+   "van": "2026-12-19",
+   "tot": "2027-01-03",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "noord",
+   "van": "2027-02-20",
+   "tot": "2027-02-28",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "midden",
+   "van": "2027-02-20",
+   "tot": "2027-02-28",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "zuid",
+   "van": "2027-02-13",
+   "tot": "2027-02-21",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Meivakantie",
+   "regio": "heel nederland",
+   "van": "2027-04-24",
+   "tot": "2027-05-02",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "noord",
+   "van": "2027-07-10",
+   "tot": "2027-08-22",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "midden",
+   "van": "2027-07-17",
+   "tot": "2027-08-29",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "zuid",
+   "van": "2027-07-24",
+   "tot": "2027-09-05",
+   "schooljaar": "2026-2027"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "noord",
+   "van": "2027-10-16",
+   "tot": "2027-10-24",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "midden",
+   "van": "2027-10-16",
+   "tot": "2027-10-24",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "zuid",
+   "van": "2027-10-23",
+   "tot": "2027-10-31",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Kerstvakantie",
+   "regio": "heel nederland",
+   "van": "2027-12-25",
+   "tot": "2028-01-09",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "noord",
+   "van": "2028-02-19",
+   "tot": "2028-02-27",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "midden",
+   "van": "2028-02-26",
+   "tot": "2028-03-05",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "zuid",
+   "van": "2028-02-26",
+   "tot": "2028-03-05",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Meivakantie",
+   "regio": "heel nederland",
+   "van": "2028-04-29",
+   "tot": "2028-05-07",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "noord",
+   "van": "2028-07-15",
+   "tot": "2028-08-27",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "midden",
+   "van": "2028-07-08",
+   "tot": "2028-08-20",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "zuid",
+   "van": "2028-07-22",
+   "tot": "2028-09-03",
+   "schooljaar": "2027-2028"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "noord",
+   "van": "2028-10-14",
+   "tot": "2028-10-22",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "midden",
+   "van": "2028-10-21",
+   "tot": "2028-10-29",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Herfstvakantie",
+   "regio": "zuid",
+   "van": "2028-10-21",
+   "tot": "2028-10-29",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Kerstvakantie",
+   "regio": "heel nederland",
+   "van": "2028-12-23",
+   "tot": "2029-01-07",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "noord",
+   "van": "2029-02-17",
+   "tot": "2029-02-25",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "midden",
+   "van": "2029-02-17",
+   "tot": "2029-02-25",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Voorjaarsvakantie",
+   "regio": "zuid",
+   "van": "2029-02-10",
+   "tot": "2029-02-18",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Meivakantie",
+   "regio": "heel nederland",
+   "van": "2029-04-28",
+   "tot": "2029-05-06",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "noord",
+   "van": "2029-07-21",
+   "tot": "2029-09-02",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "midden",
+   "van": "2029-07-07",
+   "tot": "2029-08-19",
+   "schooljaar": "2028-2029"
+  },
+  {
+   "naam": "Zomervakantie",
+   "regio": "zuid",
+   "van": "2029-07-14",
+   "tot": "2029-08-26",
+   "schooljaar": "2028-2029"
+  }
+ ]
+}

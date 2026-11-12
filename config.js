@@ -32,6 +32,8 @@ window.APP_CONFIG = {
     { aan: false, tijd: '09:00', dagen: [0, 6], zender: 1, volume: 40 }
   ],
   sluimerMinuten: 9,
+  // Regio voor de schoolvakanties: 'noord', 'midden' of 'zuid'
+  schoolvakantieRegio: 'zuid',
 
   // Alles hierboven is de standaard. Wat je op het scherm via ⚙ wijzigt,
   // wordt bewaard in ~/.config/radio-app/instellingen.json en gaat voor.

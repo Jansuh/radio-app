@@ -62,6 +62,7 @@
     helderheid: C.helderheid ?? 100,
     weeralarm: kopie(C.weeralarm || { aan: true, regio: 'Noord-Brabant' }),
     locatie: kopie(C.locatie),
+    vakantieRegio: C.schoolvakantieRegio || 'zuid',
     appAutoUpdate: true
   };
 
@@ -574,6 +575,55 @@
   let laatsteAfgegaan = opslag.get('wekkerLaatst', '');
   let fadeTimer = null, terugvalTimer = null, autoUitTimer = null;
   let piepCtx = null, piepTimer = null;
+  const wekAudio = new Audio();       // eigen wekgeluid (bestand), speelt in een lus
+  wekAudio.loop = true;
+
+  // ---------- Vrije dagen: feestdagen (berekend) en schoolvakanties (van de server) ----------
+  const datumSleutel = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const REGIOS = ['noord', 'midden', 'zuid'];
+
+  function paasdag(j) {                 // eerste paasdag, algoritme van Meeus/Jones/Butcher
+    const a = j % 19, b = Math.floor(j / 100), c = j % 100, d = Math.floor(b / 4), e = b % 4;
+    const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), hh = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - hh - k) % 7, m = Math.floor((a + 11 * hh + 22 * l) / 451);
+    return new Date(j, Math.floor((hh + l - 7 * m + 114) / 31) - 1, ((hh + l - 7 * m + 114) % 31) + 1);
+  }
+
+  const feestCache = {};
+  function feestdagen(j) {
+    if (feestCache[j]) return feestCache[j];
+    const lijst = {};
+    const zet = (d, naam) => { lijst[datumSleutel(d)] = naam; };
+    const pasen = paasdag(j);
+    const naPasen = n => new Date(j, pasen.getMonth(), pasen.getDate() + n);
+    zet(new Date(j, 0, 1), 'Nieuwjaarsdag');
+    zet(pasen, 'Eerste Paasdag'); zet(naPasen(1), 'Tweede Paasdag');
+    zet(new Date(j, 3, new Date(j, 3, 27).getDay() === 0 ? 26 : 27), 'Koningsdag');   // valt 27 april op zondag, dan de 26e
+    if (j % 5 === 0) zet(new Date(j, 4, 5), 'Bevrijdingsdag');                         // alleen in lustrumjaren een vrije dag
+    zet(naPasen(39), 'Hemelvaartsdag');
+    zet(naPasen(49), 'Eerste Pinksterdag'); zet(naPasen(50), 'Tweede Pinksterdag');
+    zet(new Date(j, 11, 25), 'Eerste Kerstdag'); zet(new Date(j, 11, 26), 'Tweede Kerstdag');
+    return (feestCache[j] = lijst);
+  }
+  const feestdag = d => feestdagen(d.getFullYear())[datumSleutel(d)] || null;
+
+  let vakanties = opslag.get('schoolvakanties', []);
+  async function ververVakanties() {
+    try {
+      const d = await api('/api/schoolvakanties', undefined, 30000);
+      if (Array.isArray(d.vakanties)) { vakanties = d.vakanties; opslag.set('schoolvakanties', vakanties); }
+    } catch (e) { /* laatste lijst blijven gebruiken */ }
+    vorigeWekkerTekst = '';
+    setTimeout(ververVakanties, 24 * 3600e3);
+  }
+  const vanRegio = v => { const r = String(v.regio).toLowerCase(); return r === inst.vakantieRegio || r === 'heel nederland'; };
+  function schoolvakantie(d) {
+    const s = datumSleutel(d);
+    const v = vakanties.find(x => vanRegio(x) && x.van <= s && s <= x.tot);
+    return v ? v.naam : null;
+  }
+  // Waarom deze wekker op deze dag niet afgaat (of null als hij gewoon afgaat)
+  const vrijeReden = (d, w) => (w.nietFeestdag && feestdag(d)) || (w.nietVakantie && schoolvakantie(d)) || null;
 
   function controleerWekkers(nu) {
     if (wekkerActief) return;
@@ -584,6 +634,7 @@
     const hhmm = fmtTijd.format(nu);
     inst.wekkers.forEach((w, i) => {
       if (wekkerActief || !w.aan || w.tijd !== hhmm || !w.dagen.includes(nu.getDay())) return;
+      if (vrijeReden(nu, w)) return;                       // feestdag of schoolvakantie: overslaan
       const sleutel = nu.toDateString() + '|' + i + '|' + w.tijd;
       if (laatsteAfgegaan === sleutel) return;
       laatsteAfgegaan = sleutel;
@@ -600,24 +651,31 @@
     sluitToetsenbord(null);
     const zi = Math.max(0, zenders().findIndex(z => z.naam === w.zender));
     $('wekker-tijd').textContent = fmtTijd.format(new Date());
-    $('wekker-info').textContent = zenders()[zi] ? zenders()[zi].naam : 'Wekker';
+    const soort = w.geluid || 'radio';
+    const radio = soort === 'radio' && zenders().length > 0;
+    $('wekker-info').textContent = radio ? zenders()[zi].naam : soort.startsWith('bestand:') ? soort.slice(8) : 'Wekker';
     $('sluimer').textContent = `Sluimeren ${inst.sluimer} min`;
     $('wekker-scherm').classList.remove('verborgen');
 
     const doel = (w.volume ?? 50) / 100;
     volumeOverride = Math.min(doel, 0.05);
-    if (zenders().length) speel(zi); else startPiep();
+    if (radio) speel(zi);
+    else {
+      stop();
+      if (soort.startsWith('bestand:')) speelWekBestand(soort.slice(8)); else startPiep();
+    }
 
     clearInterval(fadeTimer);
     fadeTimer = setInterval(() => {         // in ± 90 sec aanzwellen tot het ingestelde volume
       if (volumeOverride === null) return;
       volumeOverride = Math.min(doel, volumeOverride + doel / 60);
       audio.volume = volumeOverride;
+      wekAudio.volume = volumeOverride;
     }, 1500);
 
     clearTimeout(terugvalTimer);
     terugvalTimer = setTimeout(() => {      // geen radio na 25 sec? Dan piepen.
-      if (wekkerActief && (audio.paused || audio.readyState < 3)) {
+      if (wekkerActief && radio && (audio.paused || audio.readyState < 3)) {
         stop(); startPiep();
         $('wekker-info').textContent = 'Radio niet bereikbaar';
       }
@@ -627,9 +685,23 @@
     autoUitTimer = setTimeout(() => wekkerUit(true), 60 * 60000);
   }
 
+  // Eigen geluidsbestand afspelen; lukt dat niet, dan de pieptoon
+  function speelWekBestand(naam) {
+    const terugval = () => {
+      if (!wekkerActief || piepTimer) return;
+      wekAudio.pause(); startPiep();
+      $('wekker-info').textContent = 'Wekgeluid niet gevonden';
+    };
+    wekAudio.onerror = terugval;
+    wekAudio.src = '/geluiden/' + encodeURIComponent(naam);
+    wekAudio.volume = volumeOverride ?? 0.5;
+    wekAudio.play().catch(terugval);
+  }
+
   function stopWekkerGeluid() {
     clearInterval(fadeTimer); clearTimeout(terugvalTimer); clearTimeout(autoUitTimer);
     stopPiep();
+    wekAudio.onerror = null; wekAudio.pause(); wekAudio.removeAttribute('src');
     stop();
     volumeOverride = null;
     audio.volume = sliderVolume();
@@ -689,9 +761,9 @@
     inst.wekkers.forEach(w => {
       if (!w.aan || !w.dagen.length) return;
       const [hh, mm] = w.tijd.split(':').map(Number);
-      for (let d = 0; d < 8; d++) {
+      for (let d = 0; d < 70; d++) {
         const t = new Date(nu); t.setDate(t.getDate() + d); t.setHours(hh, mm, 0, 0);
-        if (t <= nu || !w.dagen.includes(t.getDay())) continue;
+        if (t <= nu || !w.dagen.includes(t.getDay()) || vrijeReden(t, w)) continue;
         if (!beste || t < beste) beste = t;
         break;
       }
@@ -705,7 +777,7 @@
     if (sluimerTot) tekst = `⏰ Sluimert tot ${fmtTijd.format(sluimerTot)}`;
     else {
       const v = volgendeWekker(nu);
-      if (v) tekst = `⏰ ${v - nu < 20 * 3600e3 ? '' : hoofdletter(DAGEN[v.getDay()]) + ' '}${fmtTijd.format(v)}`;
+      if (v) tekst = `⏰ ${v - nu < 20 * 3600e3 ? '' : hoofdletter(DAGEN[v.getDay()]) + ' '}${v - nu > 6.5 * 864e5 ? v.getDate() + '-' + (v.getMonth() + 1) + ' ' : ''}${fmtTijd.format(v)}`;
     }
     if (tekst === vorigeWekkerTekst) return;
     vorigeWekkerTekst = tekst;
@@ -855,6 +927,7 @@
     $('instellingen').classList.remove('verborgen');
     tekenTab(tab);
     ververStatus();
+    laadWekBestanden();
   }
 
   function sluitInstellingen() {
@@ -906,6 +979,13 @@
   }
 
   // ---------- Wekker ----------
+  let wekBestanden = [];
+  const datumKort = d => d.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' });
+  async function laadWekBestanden() {
+    try { wekBestanden = (await api('/api/wekgeluiden', undefined, 8000)).bestanden || []; } catch (e) { wekBestanden = []; }
+    if (instOpen && huidigeTab === 'wekker') tekenTab('wekker');
+  }
+
   function tabWekker() {
     const c = h('div', {}, h('h2', {}, 'Wekker'));
     inst.wekkers.forEach((w, i) => {
@@ -944,13 +1024,42 @@
       const volume = h('input', { type: 'range', min: 10, max: 100, value: w.volume ?? 50, class: 'breed',
         oninput: e => { w.volume = Number(e.target.value); bewaar(); } });
 
+      // Wekgeluid: radio, pieptoon of een eigen bestand
+      const soorten = [['radio', '📻 Radio'], ['piep', '🔔 Pieptoon'], ...wekBestanden.map(n => ['bestand:' + n, '🎵 ' + n])];
+      const nuSoort = w.geluid || 'radio';
+      if (!soorten.some(s => s[0] === nuSoort)) soorten.push([nuSoort, '🎵 ' + nuSoort.slice(8) + ' (ontbreekt)']);
+      const wisselGeluid = d => {
+        const idx = (soorten.findIndex(s => s[0] === nuSoort) + d + soorten.length) % soorten.length;
+        w.geluid = soorten[idx][0]; bewaar(); tekenTab('wekker');
+      };
+      // Eerstvolgende keer volgens de dagen; valt die op een vrije dag, dan dat melden
+      let overslaan = null;
+      if (w.aan && w.dagen.length) {
+        for (let d = 0; d < 8 && !overslaan; d++) {
+          const t = new Date(); t.setDate(t.getDate() + d); t.setHours(hh, mm, 0, 0);
+          if (t <= new Date() || !w.dagen.includes(t.getDay())) continue;
+          const reden = vrijeReden(t, w);
+          if (reden) overslaan = `Gaat ${hoofdletter(DAGEN[t.getDay()])} ${t.getDate()}-${t.getMonth() + 1} niet af: ${reden}`;
+          break;
+        }
+      }
+
       c.appendChild(h('div', { class: 'kaart' },
         h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, `Wekker ${i + 1}`)),
-          schakel(w.aan, n => { w.aan = n; bewaar(); vorigeWekkerTekst = ''; })),
+          schakel(w.aan, n => { w.aan = n; bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); })),
         h('div', { class: 'rij' }, tijd, h('div', { class: 'groei' }, dagen)),
-        h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Zender'),
+        h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Geluid'),
+          h('button', { class: 'knop klein-k zacht', onclick: () => wisselGeluid(-1) }, '◀'),
+          h('span', { class: 'label groei', style: 'text-align:center' }, soorten.find(s => s[0] === nuSoort)[1]),
+          h('button', { class: 'knop klein-k zacht', onclick: () => wisselGeluid(1) }, '▶')),
+        nuSoort !== 'radio' ? null : h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Zender'),
           h('button', { class: 'knop klein-k zacht', onclick: () => wisselZender(-1) }, '◀'), zNaam,
           h('button', { class: 'knop klein-k zacht', onclick: () => wisselZender(1) }, '▶')),
+        h('div', { class: 'rij' }, h('span', { class: 'label groei' }, 'Niet op feestdagen'),
+          schakel(!!w.nietFeestdag, n => { w.nietFeestdag = n; bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); })),
+        h('div', { class: 'rij' }, h('span', { class: 'label groei' }, 'Niet in de schoolvakantie'),
+          schakel(!!w.nietVakantie, n => { w.nietVakantie = n; bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); })),
+        overslaan ? h('div', { class: 'melding' }, '⏭ ' + overslaan) : null,
         h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Volume'), h('div', { class: 'groei' }, volume),
           h('button', { class: 'knop zacht', onclick: () => { sluitInstellingen(); gaAf(i); } }, 'Test'))
       ));
@@ -958,7 +1067,31 @@
     c.appendChild(h('div', { class: 'kaart' }, h('div', { class: 'rij' },
       h('span', { class: 'label groei' }, 'Sluimertijd'),
       getalKiezer(inst.sluimer, 1, 30, ' min', v => { inst.sluimer = v; bewaar(); }))));
-    c.appendChild(h('div', { class: 'sub' }, 'Werkt de radio niet als de wekker afgaat, dan klinkt er een pieptoon.'));
+    // Vrije dagen: regio en wat er aankomt
+    const vandaag = new Date(), sleutelNu = datumSleutel(vandaag);
+    let komendeFeestdag = '—';
+    for (let d = 0; d < 370; d++) {
+      const t = new Date(vandaag.getFullYear(), vandaag.getMonth(), vandaag.getDate() + d);
+      if (feestdag(t)) { komendeFeestdag = `${feestdag(t)}, ${datumKort(t)}`; break; }
+    }
+    const kv = vakanties.filter(v => vanRegio(v) && v.tot >= sleutelNu).sort((a, b) => a.van.localeCompare(b.van))[0];
+    const vanIso = s => new Date(s + 'T12:00');
+    const wisselRegio = d => {
+      inst.vakantieRegio = REGIOS[(REGIOS.indexOf(inst.vakantieRegio) + d + REGIOS.length) % REGIOS.length];
+      bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker');
+    };
+    c.appendChild(h('div', { class: 'kaart' },
+      h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, 'Vrije dagen'))),
+      h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Regio schoolvakanties'),
+        h('button', { class: 'knop klein-k zacht', onclick: () => wisselRegio(-1) }, '◀'),
+        h('span', { class: 'label groei', style: 'text-align:center', id: 'vakantie-regio' }, hoofdletter(inst.vakantieRegio)),
+        h('button', { class: 'knop klein-k zacht', onclick: () => wisselRegio(1) }, '▶')),
+      h('div', { class: 'sub', style: 'margin-top:1.2vh', id: 'komende-vakantie' }, 'Eerstvolgende schoolvakantie: ' +
+        (kv ? `${kv.naam}, ${datumKort(vanIso(kv.van))} t/m ${datumKort(vanIso(kv.tot))}` : 'onbekend (geen gegevens)')),
+      h('div', { class: 'sub', id: 'komende-feestdag' }, 'Eerstvolgende feestdag: ' + komendeFeestdag),
+      h('div', { class: 'sub', style: 'margin-top:.8vh' }, 'Feestdagen: Nieuwjaar, Pasen, Koningsdag, Hemelvaart, Pinksteren en Kerst, en Bevrijdingsdag eens per vijf jaar. Goede Vrijdag telt niet mee. Schoolvakanties komen van de Rijksoverheid.')));
+    c.appendChild(h('div', { class: 'sub' }, 'Werkt de radio of het wekgeluid niet als de wekker afgaat, dan klinkt er een pieptoon. ' +
+      'Eigen wekgeluid: zet een mp3-bestand in de map ~/.config/radio-app/geluiden op de Pi.'));
     return c;
   }
 
@@ -1412,6 +1545,7 @@
     tik();
     ververWeer();
     ververWaarschuwingen();
+    ververVakanties();
     ververStatus();
     if (C.autoplay && !DEMO && huidig >= 0) setTimeout(() => speel(huidig), 1500);
   })();

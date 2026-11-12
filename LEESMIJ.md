@@ -4,6 +4,7 @@ Een schermvullende wekkerradio die vanzelf opstart, met:
 - een grote klok en het weer voor **Veghel** (regen voor de komende 2 uur, verwachting voor 4 dagen)
 - internetradio met jouw eigen logo, met **artiest en titel** van wat er nu speelt (tik erop voor wat er eerder speelde)
 - **2 wekkers** die langzaam harder gaan, met sluimerknop. Werkt de radio niet, dan hoor je een pieptoon.
+- per wekker een eigen **wekgeluid** (radio, pieptoon of je eigen mp3) en de keuze **niet op feestdagen** en **niet in de schoolvakantie** (regio noord, midden of zuid)
 - een **slaaptimer** (💤 bovenaan: 15, 30, 60 of 90 min)
 - een **KNMI-weeralarm** voor Noord-Brabant: bij code geel, oranje of rood verschijnt er bovenaan een gekleurde balk
 - **instellingen op het scherm** (⚙️): wekkers, zenders zoeken en toevoegen, helderheid, nachtmodus, Wi-Fi en systeem
@@ -62,10 +63,12 @@ Vanaf de zip werkt alles, behalve het zelf bijwerken van de app. Wil je dat late
 - Systeemtaken lopen via `/usr/local/sbin/radio-helper`. Die mag alleen die vaste taken uitvoeren.
 - Wat je via ⚙️ wijzigt, wordt bewaard in `~/.config/radio-app/instellingen.json`.
 - Elke 6 uur controleert de Pi of er updates zijn.
+- Feestdagen rekent de app zelf uit. De schoolvakanties haalt de Pi wekelijks op bij de Rijksoverheid; zonder internet gebruikt hij de laatst bewaarde of de meegeleverde lijst (`schoolvakanties.json`, t/m schooljaar 2028-2029).
 
 ## Aanpassen
 - **Eigen logo:** zet je bestand (bijv. `logo.png`) in `~/radio-app`, pas `logo:` aan in `config.js` en draai daarna `bash install.sh` opnieuw. Dan wordt je logo ook het opstartscherm.
 - **Kleur:** pas `--accent` aan bovenaan `style.css`.
+- **Eigen wekgeluid:** zet een geluidsbestand (mp3, ogg, wav, m4a of flac) in `~/.config/radio-app/geluiden` op de Pi, bijvoorbeeld vanaf je pc met `scp wekker.mp3 GEBRUIKER@IP-ADRES:.config/radio-app/geluiden/`. Kies het daarna bij ⚙️ › Wekker › *Geluid*. De map staat buiten de app en blijft bij updates bewaard.
 - **Standaardinstellingen:** die staan in `config.js` (zenders, locatie, wekkers, provincie voor het weeralarm).
 
 ## Handig om te weten
