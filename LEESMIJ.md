@@ -5,6 +5,7 @@ Een schermvullende wekkerradio die vanzelf opstart, met:
 - internetradio met jouw eigen logo, met **artiest en titel** van wat er nu speelt (tik erop voor wat er eerder speelde)
 - **2 wekkers** die langzaam harder gaan, met sluimerknop. Werkt de radio niet, dan hoor je een pieptoon.
 - per wekker een eigen **wekgeluid** (radio, pieptoon of je eigen mp3) en de keuze **niet op feestdagen** en **niet in de schoolvakantie** (regio noord, midden of zuid)
+- een wekker **één keer overslaan** voor een losse vrije dag
 - een **slaaptimer** (💤 bovenaan: 15, 30, 60 of 90 min)
 - een **KNMI-weeralarm** voor Noord-Brabant: bij code geel, oranje of rood verschijnt er bovenaan een gekleurde balk
 - **instellingen op het scherm** (⚙️): wekkers, zenders zoeken en toevoegen, helderheid, nachtmodus, Wi-Fi en systeem
@@ -54,6 +55,7 @@ Vanaf de zip werkt alles, behalve het zelf bijwerken van de app. Wil je dat late
 - De Pi controleert elke 3 uur of er een nieuwe versie is. Je kunt ook zelf controleren via ⚙️ › Systeem › *Nu controleren*.
 - Is er een nieuwe versie, dan zie je bovenaan **⬆ App-update** en in ⚙️ › Systeem de lijst met wijzigingen.
 - Tik op **App bijwerken**: de app werkt zichzelf bij, herstart en het scherm herlaadt vanzelf.
+- **Gaat een update mis?** Start de nieuwe versie niet, dan draait de Pi hem zelf terug en blijft de oude versie werken. Werkt er iets anders niet goed, tik dan op ⚙️ › Systeem › **Vorige versie terugzetten**. Automatisch bijwerken wacht daarna tot er een nieuwere versie op GitHub staat.
 - Met **Automatisch bijwerken** gebeurt dit 's nachts om 03:00, maar niet als er muziek speelt of als er binnen een uur een wekker gaat.
 - Wijzigt een update `radio-helper`, `install.sh`, `start-kiosk.sh` of het logo? Dan meldt de app dat. Draai daarna één keer `bash ~/radio-app/install.sh` via SSH of met een toetsenbord.
 

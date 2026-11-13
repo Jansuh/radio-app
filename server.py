@@ -203,7 +203,14 @@ def installeer_updates():
 # ------------------------------------------------------------------ app zelf bijwerken (git / GitHub)
 app = {'git': False, 'versie': '', 'commit': '', 'nieuw': None, 'wijzigingen': [], 'lokaalGewijzigd': False,
        'laatsteCheck': None, 'bezig': False, 'melding': '', 'fout': False, 'systeemdeelGewijzigd': False,
-       'bron': ''}
+       'bron': '',
+       'vorige': None,          # {'commit', 'versie'}: waar 'Vorige versie terugzetten' naartoe gaat
+       'overgeslagen': '',      # commit die is teruggedraaid; automatisch bijwerken wacht op iets nieuwers
+       'wachtOpNieuwer': False,  # True zolang GitHub nog op die teruggedraaide commit staat
+       'proef': None}           # {'commit'}: net bijgewerkt, het scherm moet nog laten zien dat het werkt
+BEWAARD = ('systeemdeelGewijzigd', 'melding', 'fout', 'vorige', 'overgeslagen', 'proef')
+laatste_pagina = 0.0            # laatste keer dat het scherm de status opvroeg
+proef_geladen = 0.0             # wanneer het scherm na een update de nieuwe app.js ophaalde
 SYSTEEMDEEL = {'radio-helper', 'install.sh', 'start-kiosk.sh'}
 # Alleen deze bestandstypen uit de app-map worden geserveerd (dus geen server.py, radio-helper of .git)
 STATISCH = {'.html', '.css', '.js', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico'}
@@ -228,15 +235,16 @@ def app_info():
     # Melding van een vorige update bewaren over de herstart heen
     try:
         with open(APP_STATUS) as f:
-            app.update({k: v for k, v in json.load(f).items() if k in ('systeemdeelGewijzigd', 'melding')})
+            app.update({k: v for k, v in json.load(f).items() if k in BEWAARD})
     except (OSError, ValueError):
         pass
 
 
 def bewaar_app_status():
     try:
-        with open(APP_STATUS, 'w') as f:
-            json.dump({'systeemdeelGewijzigd': app['systeemdeelGewijzigd'], 'melding': app['melding']}, f)
+        with open(APP_STATUS + '.tmp', 'w') as f:
+            json.dump({k: app[k] for k in BEWAARD}, f)
+        os.replace(APP_STATUS + '.tmp', APP_STATUS)
     except OSError:
         pass
 
@@ -253,12 +261,17 @@ def zoek_app_update():
         aantal = int(git('rev-list', '--count', 'HEAD..@{u}')[1] or 0)
         log = git('log', '--format=%s', '-n', '15', 'HEAD..@{u}')[1]
         lokaal = bool(git('status', '--porcelain', '--untracked-files=no')[1])
+        bovenstrooms = git('rev-parse', '@{u}')[1]
         with slot:
+            app['wachtOpNieuwer'] = bool(app['overgeslagen']) and bovenstrooms == app['overgeslagen']
             app.update({'nieuw': aantal, 'wijzigingen': [r for r in log.splitlines() if r.strip()],
                         'lokaalGewijzigd': lokaal, 'fout': False,
                         'laatsteCheck': datetime.now().strftime('%H:%M')})
             if app['melding'] == 'GitHub niet bereikbaar':
                 app['melding'] = ''
+            if app['overgeslagen'] and not app['wachtOpNieuwer'] and aantal == 0:
+                app['overgeslagen'] = ''                    # we draaien inmiddels iets nieuwers
+                bewaar_app_status()
     except (OSError, subprocess.SubprocessError, ValueError) as e:
         with slot:
             app.update({'melding': f'Controleren mislukt: {e}'[:150], 'fout': True})
@@ -277,6 +290,43 @@ def herstart_server():
     os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
 
 
+def proefstart():
+    """Start de zojuist opgehaalde server even op een vrije poort. Antwoordt hij niet, dan is de update stuk."""
+    try:
+        s = socket.socket()
+        s.bind(('127.0.0.1', 0))
+        poort = s.getsockname()[1]
+        s.close()
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                             env={**os.environ, 'RADIO_PORT': str(poort), 'RADIO_PROEF': '1'})
+    except OSError as e:
+        return False, str(e)
+    try:
+        eind = time.time() + 12
+        while time.time() < eind:
+            if p.poll() is not None:
+                fout = (p.stderr.read() or b'').decode('utf-8', 'replace').strip().splitlines()
+                return False, (fout[-1] if fout else 'server stopt meteen')[:120]
+            try:
+                req = urllib.request.Request(f'http://127.0.0.1:{poort}/api/status', headers={'Host': f'localhost:{poort}'})
+                with urllib.request.urlopen(req, timeout=2) as r:
+                    if isinstance(json.load(r), dict):
+                        return True, ''
+            except (OSError, ValueError):
+                time.sleep(0.3)
+        return False, 'server antwoordt niet'
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait()
+
+
+def systeemdeel_geraakt(oud, nieuw):
+    gewijzigd = set(git('diff', '--name-only', oud, nieuw)[1].splitlines())
+    logo = re.search(r"logo:\s*'([^']+)'", lees(os.path.join(APP_DIR, 'config.js')))
+    return bool(gewijzigd & (SYSTEEMDEEL | ({logo.group(1)} if logo else set())))
+
+
 def werk_app_bij(forceer=False):
     with slot:
         if app['bezig'] or not app['git']:
@@ -284,6 +334,7 @@ def werk_app_bij(forceer=False):
         app.update({'bezig': True, 'melding': 'Bijwerken…', 'fout': False})
     try:
         oud = git('rev-parse', 'HEAD')[1]
+        oude_versie = lees(os.path.join(APP_DIR, 'VERSION'), '?')
         if forceer:
             code, uit, fout = git('reset', '--hard', '@{u}')
         else:
@@ -294,14 +345,27 @@ def werk_app_bij(forceer=False):
                             'melding': 'Bijwerken mislukt: ' + (fout or uit).splitlines()[-1][:120] if (fout or uit) else 'Bijwerken mislukt'})
             return False, app['melding']
         nieuw = git('rev-parse', 'HEAD')[1]
-        gewijzigd = set(git('diff', '--name-only', oud, nieuw)[1].splitlines())
-        logo = re.search(r"logo:\s*'([^']+)'", lees(os.path.join(APP_DIR, 'config.js')))
-        if logo:
-            SYSTEEMDEEL.add(logo.group(1))
+        nieuwe_versie = lees(os.path.join(APP_DIR, 'VERSION'), '?')
+        if nieuw == oud:
+            with slot:
+                app.update({'bezig': False, 'nieuw': 0, 'melding': 'Je hebt de nieuwste versie al'})
+            return True, app['melding']
+        # Eerst kijken of de nieuwe server wel start; zo niet, meteen terug naar wat werkte
+        ok, reden = proefstart()
+        if not ok:
+            git('reset', '--hard', oud)
+            with slot:
+                app.update({'bezig': False, 'fout': True, 'overgeslagen': nieuw, 'wachtOpNieuwer': True,
+                            'melding': f'Versie {nieuwe_versie} start niet en is teruggedraaid ({reden})'[:200]})
+                bewaar_app_status()
+            return False, app['melding']
         with slot:
-            app['systeemdeelGewijzigd'] = app['systeemdeelGewijzigd'] or bool(gewijzigd & SYSTEEMDEEL)
-            app.update({'bezig': False, 'nieuw': 0, 'wijzigingen': [], 'lokaalGewijzigd': False,
-                        'melding': f'Bijgewerkt naar versie {lees(os.path.join(APP_DIR, "VERSION"), "?")}'})
+            app['systeemdeelGewijzigd'] = app['systeemdeelGewijzigd'] or systeemdeel_geraakt(oud, nieuw)
+            app.update({'bezig': False, 'nieuw': 0, 'wijzigingen': [], 'lokaalGewijzigd': False, 'fout': False,
+                        'vorige': {'commit': oud, 'versie': oude_versie}, 'overgeslagen': '', 'wachtOpNieuwer': False,
+                        # Alleen als er een scherm meekijkt, kan dat scherm bevestigen dat de nieuwe versie werkt
+                        'proef': {'commit': nieuw} if time.time() - laatste_pagina < 150 else None,
+                        'melding': f'Bijgewerkt naar versie {nieuwe_versie}'})
             bewaar_app_status()
         threading.Thread(target=herstart_server, daemon=True).start()
         return True, app['melding']
@@ -309,6 +373,44 @@ def werk_app_bij(forceer=False):
         with slot:
             app.update({'bezig': False, 'fout': True, 'melding': f'Bijwerken mislukt: {e}'[:150]})
         return False, app['melding']
+
+
+def zet_vorige_terug(automatisch=False):
+    """Terug naar de versie van vóór de laatste update. Automatisch bijwerken wacht daarna op iets nieuwers."""
+    with slot:
+        vorige = app['vorige']
+        if app['bezig'] or not app['git'] or not vorige or not vorige.get('commit'):
+            return False, 'Er is geen vorige versie om terug te zetten'
+        app.update({'bezig': True, 'melding': 'Vorige versie terugzetten…', 'fout': False})
+    try:
+        nu_commit = git('rev-parse', 'HEAD')[1]
+        nu_versie = lees(os.path.join(APP_DIR, 'VERSION'), '?')
+        if not re.fullmatch(r'[0-9a-f]{7,64}', vorige['commit']):
+            raise OSError('ongeldige vorige versie')
+        code, uit, fout = git('reset', '--hard', vorige['commit'])
+        if code != 0:
+            raise OSError((fout or uit or 'git reset mislukt').splitlines()[-1][:120])
+        with slot:
+            app['systeemdeelGewijzigd'] = app['systeemdeelGewijzigd'] or systeemdeel_geraakt(nu_commit, vorige['commit'])
+            app.update({'bezig': False, 'vorige': None, 'proef': None, 'overgeslagen': nu_commit, 'wachtOpNieuwer': True,
+                        'fout': automatisch,
+                        'melding': (f'Versie {nu_versie} werkte niet op het scherm en is teruggedraaid naar {vorige.get("versie", "?")}'
+                                    if automatisch else f'Teruggezet naar versie {vorige.get("versie", "?")}')})
+            bewaar_app_status()
+        threading.Thread(target=herstart_server, daemon=True).start()
+        return True, app['melding']
+    except (OSError, subprocess.SubprocessError) as e:
+        with slot:
+            app.update({'bezig': False, 'fout': True, 'melding': f'Terugzetten mislukt: {e}'[:150]})
+        return False, app['melding']
+
+
+def proef_lus():
+    """Na een update: laadt het scherm de nieuwe versie maar meldt het zich niet binnen 90 seconden, dan terugdraaien."""
+    while True:
+        time.sleep(5)
+        if app['proef'] and proef_geladen and time.time() - proef_geladen > 90 and not app['bezig']:
+            zet_vorige_terug(automatisch=True)
 
 
 # ------------------------------------------------------------------ wifi
@@ -696,11 +798,15 @@ class Handler(SimpleHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b'{}')
 
     def do_GET(self):
+        global laatste_pagina, proef_geladen
         if not self.host_ok():
             return
         pad = self.path.split('?')[0]
+        if pad == '/app.js' and app['proef'] and not proef_geladen:
+            proef_geladen = time.time()                   # het scherm probeert de nieuwe versie
         try:
             if pad == '/api/status':
+                laatste_pagina = time.time()
                 return self.json(systeem_info())
             if pad == '/api/instellingen':
                 return self.json(json.loads(lees(INSTELLINGEN, '{}') or '{}'))
@@ -779,9 +885,19 @@ class Handler(SimpleHTTPRequestHandler):
             if pad == '/api/app/bijwerken':
                 ok, melding = werk_app_bij(bool(data.get('forceer')))
                 return self.json({'ok': ok, 'melding': melding})
+            if pad == '/api/app/terugzetten':
+                ok, melding = zet_vorige_terug()
+                return self.json({'ok': ok, 'melding': melding})
+            if pad == '/api/app/gezond':
+                # Het scherm meldt dat de app goed is opgestart: de update is geslaagd
+                with slot:
+                    if app['proef'] and proef_geladen:
+                        app['proef'] = None
+                        bewaar_app_status()
+                return self.json({'ok': True})
             if pad == '/api/app/melding-gelezen':
                 with slot:
-                    app.update({'systeemdeelGewijzigd': False, 'melding': ''})
+                    app.update({'systeemdeelGewijzigd': False, 'melding': '', 'fout': False})
                     bewaar_app_status()
                 return self.json({'ok': True})
             if pad == '/api/updates/zoeken':
@@ -807,7 +923,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     app_info()
-    threading.Thread(target=update_lus, daemon=True).start()
-    threading.Thread(target=app_update_lus, daemon=True).start()
+    if os.environ.get('RADIO_PROEF') != '1':             # bij een proefstart alleen laten zien dat de server antwoordt
+        threading.Thread(target=update_lus, daemon=True).start()
+        threading.Thread(target=app_update_lus, daemon=True).start()
+        threading.Thread(target=proef_lus, daemon=True).start()
     print(f'Radio-app draait op http://localhost:{PORT}' + (' (demo)' if DEMO else ''))
     ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

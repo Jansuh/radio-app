@@ -623,7 +623,19 @@
     return v ? v.naam : null;
   }
   // Waarom deze wekker op deze dag niet afgaat (of null als hij gewoon afgaat)
-  const vrijeReden = (d, w) => (w.nietFeestdag && feestdag(d)) || (w.nietVakantie && schoolvakantie(d)) || null;
+  const vrijeReden = (d, w) => (w.overslaan === datumSleutel(d) && 'eenmalig overgeslagen') ||
+    (w.nietFeestdag && feestdag(d)) || (w.nietVakantie && schoolvakantie(d)) || null;
+  // Eerstvolgende moment van één wekker; metVrij = vrije en overgeslagen dagen niet meetellen
+  function volgendeKeer(w, nu, metVrij = true) {
+    if (!w.dagen || !w.dagen.length) return null;
+    const [hh, mm] = w.tijd.split(':').map(Number);
+    for (let d = 0; d < 70; d++) {
+      const t = new Date(nu); t.setDate(t.getDate() + d); t.setHours(hh, mm, 0, 0);
+      if (t <= nu || !w.dagen.includes(t.getDay()) || (metVrij && vrijeReden(t, w))) continue;
+      return t;
+    }
+    return null;
+  }
 
   function controleerWekkers(nu) {
     if (wekkerActief) return;
@@ -759,14 +771,9 @@
   function volgendeWekker(nu) {
     let beste = null;
     inst.wekkers.forEach(w => {
-      if (!w.aan || !w.dagen.length) return;
-      const [hh, mm] = w.tijd.split(':').map(Number);
-      for (let d = 0; d < 70; d++) {
-        const t = new Date(nu); t.setDate(t.getDate() + d); t.setHours(hh, mm, 0, 0);
-        if (t <= nu || !w.dagen.includes(t.getDay()) || vrijeReden(t, w)) continue;
-        if (!beste || t < beste) beste = t;
-        break;
-      }
+      if (!w.aan) return;
+      const t = volgendeKeer(w, nu);
+      if (t && (!beste || t < beste)) beste = t;
     });
     return beste;
   }
@@ -818,7 +825,7 @@
   let autoUpdateDag = '';
   function autoAppUpdate(nu) {
     const a = systeem && systeem.app;
-    if (!inst.appAutoUpdate || !a || !a.git || !(a.nieuw > 0) || a.lokaalGewijzigd || a.bezig) return;
+    if (!inst.appAutoUpdate || !a || !a.git || !(a.nieuw > 0) || a.lokaalGewijzigd || a.bezig || a.wachtOpNieuwer) return;
     if (nu.getHours() !== 3 || autoUpdateDag === nu.toDateString()) return;
     if (wekkerActief || speelt || instOpen || sluimerTot) return;
     const v = volgendeWekker(nu);
@@ -834,7 +841,7 @@
       const a = systeem.app || {};
       if ((systeem.upgrade && systeem.upgrade.bezig) || a.bezig) tekst = '⬆ Bijwerken…';
       else if (systeem.herstartNodig) tekst = '↻ Herstart nodig';
-      else if (a.nieuw > 0) tekst = '⬆ App-update';
+      else if (a.nieuw > 0 && !a.wachtOpNieuwer) tekst = '⬆ App-update';
       else if (systeem.updates > 0) tekst = `⬆ ${systeem.updates} update${systeem.updates === 1 ? '' : 's'}`;
     }
     k.textContent = tekst;
@@ -1034,15 +1041,14 @@
       };
       // Eerstvolgende keer volgens de dagen; valt die op een vrije dag, dan dat melden
       let overslaan = null;
-      if (w.aan && w.dagen.length) {
-        for (let d = 0; d < 8 && !overslaan; d++) {
-          const t = new Date(); t.setDate(t.getDate() + d); t.setHours(hh, mm, 0, 0);
-          if (t <= new Date() || !w.dagen.includes(t.getDay())) continue;
-          const reden = vrijeReden(t, w);
-          if (reden) overslaan = `Gaat ${hoofdletter(DAGEN[t.getDay()])} ${t.getDate()}-${t.getMonth() + 1} niet af: ${reden}`;
-          break;
-        }
-      }
+      const eerst = w.aan ? volgendeKeer(w, new Date(), false) : null;
+      const dagTekst = t => `${hoofdletter(DAGEN[t.getDay()])} ${t.getDate()}-${t.getMonth() + 1}`;
+      if (eerst && vrijeReden(eerst, w)) overslaan = `Gaat ${dagTekst(eerst)} niet af: ${vrijeReden(eerst, w)}`;
+      // Eén keer overslaan: de eerstvolgende keer dat de wekker echt zou afgaan
+      const eenmalig = w.overslaan && w.overslaan >= datumSleutel(new Date());
+      const echt = w.aan ? volgendeKeer(w, new Date()) : null;
+      const sla = () => { if (echt) { w.overslaan = datumSleutel(echt); bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); } };
+      const slaNiet = () => { delete w.overslaan; bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); };
 
       c.appendChild(h('div', { class: 'kaart' },
         h('div', { class: 'rij' }, h('span', { class: 'label groei' }, h('b', {}, `Wekker ${i + 1}`)),
@@ -1060,6 +1066,10 @@
         h('div', { class: 'rij' }, h('span', { class: 'label groei' }, 'Niet in de schoolvakantie'),
           schakel(!!w.nietVakantie, n => { w.nietVakantie = n; bewaar(); vorigeWekkerTekst = ''; tekenTab('wekker'); })),
         overslaan ? h('div', { class: 'melding' }, '⏭ ' + overslaan) : null,
+        !w.aan ? null : h('div', { class: 'rij' },
+          eenmalig ? h('button', { class: 'knop zacht', onclick: slaNiet }, '↩ Toch laten afgaan')
+            : h('button', { class: 'knop zacht', disabled: !echt, onclick: sla }, echt ? `⏭ ${dagTekst(echt)} overslaan` : '⏭ Volgende keer overslaan'),
+          h('span', { class: 'sub groei' }, eenmalig ? 'Daarna gaat de wekker weer gewoon af.' : 'Eén keer overslaan, bijvoorbeeld voor een vrije dag.')),
         h('div', { class: 'rij' }, h('span', { class: 'sub' }, 'Volume'), h('div', { class: 'groei' }, volume),
           h('button', { class: 'knop zacht', onclick: () => { sluitInstellingen(); gaAf(i); } }, 'Test'))
       ));
@@ -1459,7 +1469,7 @@
       k.appendChild(h('div', { class: 'sub', style: 'margin:.6vh 0 1vh 1vw' },
         a.wijzigingen.slice(0, 8).map(w => h('div', {}, '• ' + w))));
     }
-    if (a.melding && !a.fout && !a.bezig && !(a.nieuw > 0)) k.appendChild(h('div', { class: 'melding goed' }, a.melding));
+    if (a.melding && !a.fout && !a.bezig && (!(a.nieuw > 0) || a.wachtOpNieuwer)) k.appendChild(h('div', { class: 'melding goed' }, a.melding));
     if (a.systeemdeelGewijzigd) {
       k.appendChild(h('div', { class: 'melding' },
         '⚠️ Deze update wijzigt ook het systeemdeel of het opstartlogo. Draai één keer ',
@@ -1467,6 +1477,9 @@
       k.appendChild(h('div', { class: 'rij' }, h('button', { class: 'knop zacht klein-k', onclick: async () => {
         await api('/api/app/melding-gelezen', {}).catch(() => {}); ververStatus();
       } }, 'Begrepen')));
+    }
+    if (a.wachtOpNieuwer) {
+      k.appendChild(h('div', { class: 'melding' }, 'De laatste versie op GitHub is teruggedraaid. Automatisch bijwerken wacht tot er een nieuwere versie is.'));
     }
     if (a.lokaalGewijzigd) {
       k.appendChild(h('div', { class: 'melding fout' }, 'Op de Pi zelf zijn bestanden van de app gewijzigd. Daardoor kan de app niet gewoon bijwerken.'));
@@ -1479,6 +1492,11 @@
       } }, 'Nu controleren'),
       a.nieuw > 0 && !a.lokaalGewijzigd ? h('button', { class: 'knop', disabled: !!a.bezig, onclick: () => appBijwerken(false) }, 'App bijwerken') : null,
       a.nieuw > 0 && a.lokaalGewijzigd ? h('button', { class: 'knop gevaar', disabled: !!a.bezig, onclick: () => appBijwerken(true) }, 'Lokale wijzigingen weggooien en bijwerken') : null));
+
+    if (a.vorige && a.vorige.commit) {
+      k.appendChild(h('div', { class: 'rij' },
+        h('button', { class: 'knop zacht', disabled: !!a.bezig, onclick: appTerugzetten }, `↩ Vorige versie terugzetten (${a.vorige.versie || '?'})`)));
+    }
 
     k.appendChild(h('div', { class: 'rij' },
       h('span', { class: 'label groei' }, 'Automatisch bijwerken ’s nachts (03:00)'),
@@ -1497,6 +1515,17 @@
       dialoog('⬆ App bijgewerkt<small>Het scherm herlaadt over een paar seconden…</small>', []);
       setTimeout(() => location.reload(), 6000);     // vangnet als de status het niet oppikt
     } catch (e) { meld('Bijwerken mislukt.<small>' + esc(e.message) + '</small>'); }
+  }
+
+  async function appTerugzetten() {
+    const v = (systeem && systeem.app && systeem.app.vorige) || {};
+    if (!await bevestig(`Terug naar versie ${esc(v.versie || '?')}?<small>Gebruik dit als de laatste update niet goed werkt. Je instellingen blijven bewaard. Automatisch bijwerken wacht daarna op een nieuwere versie.</small>`, 'Terugzetten')) return;
+    try {
+      const r = await api('/api/app/terugzetten', {}, 60000);
+      if (!r.ok) { meld('Terugzetten mislukt.<small>' + esc(r.melding || '') + '</small>'); return; }
+      dialoog('↩ Vorige versie teruggezet<small>Het scherm herlaadt over een paar seconden…</small>', []);
+      setTimeout(() => location.reload(), 6000);
+    } catch (e) { meld('Terugzetten mislukt.<small>' + esc(e.message) + '</small>'); }
   }
 
   async function systeemActie(actie) {
@@ -1548,5 +1577,7 @@
     ververVakanties();
     ververStatus();
     if (C.autoplay && !DEMO && huidig >= 0) setTimeout(() => speel(huidig), 1500);
+    window.radioGestart = true;                       // voor het vangnet in index.html
+    api('/api/app/gezond', {}).catch(() => {});       // na een update: laten weten dat het scherm werkt
   })();
 })();
