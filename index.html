@@ -116,6 +116,8 @@
     </div>
   </div>
 
+  <!-- Vangnet: start de app niet (bijvoorbeeld door een mislukte update), dan elke minuut opnieuw proberen -->
+  <script>setTimeout(function () { if (!window.radioGestart) location.reload(); }, 60000);</script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
